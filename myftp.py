@@ -4,9 +4,17 @@ import random
 class Ftp:
     def __init__(self):
         self.connection = False
+        self.useable = False
 
     def quit(self):
-        self.disconnect()
+        if not hasattr(self,'Clientsocket') or self.connection == False:
+            return
+        self.Clientsocket.send(f'QUIT\r\n'.encode())
+        resp = self.Clientsocket.recv(1024)
+        print(resp.decode(),end="")
+        self.connection = False
+        self.useable
+        self.Clientsocket.close()
 
     def bye(self):
         self.quit()
@@ -58,6 +66,7 @@ class Ftp:
         resp = self.Clientsocket.recv(1024)
         print(resp.decode(),end="")
         self.connection = False
+        self.useable = False
         self.Clientsocket.close()
 
     def get(self, filename, local_file=None):
@@ -118,17 +127,26 @@ class Ftp:
         port = int(parts[4])*256 + int(parts[5])
         return host, port
     
-    def ls(self):
+    def ls(self,file=''):
         if not hasattr(self, 'Clientsocket') or not self.connection:
             print("Not connected.")
             return
+        number = random.randint(0,65535)
+        ipaddr = socket.gethostbyname(socket.gethostname())+f".{number//256}.{number%256}"
+        ipaddr = ipaddr.replace('.',',')
+        
+        self.Clientsocket.send(f'PORT {ipaddr}\r\n'.encode())
+        resp = self.Clientsocket.recv(1024).decode()
+        print(resp,end='')
         self.Clientsocket.sendall(b'PASV\r\n')
         pasv_response = self.Clientsocket.recv(1024).decode()
         data_host, data_port = self.parse_pasv_response(pasv_response)
         with socket.create_connection((data_host, data_port)) as data_socket:
-            self.Clientsocket.sendall(b'NLST\r\n')
+            self.Clientsocket.sendall((f'NLST {file}\r\n').encode())
             dir_response = self.Clientsocket.recv(1024).decode()
             print(dir_response, end='')
+            if dir_response.startswith('5'):
+                return
             while True:
                 data = data_socket.recv(4096)
                 if not data:
@@ -138,6 +156,13 @@ class Ftp:
         print(control_response, end='')
 
     def open(self,host,port=21):
+        if (hasattr(self, 'Clientsocket') and self.connection) or self.useable:
+            print(f"Already connected to {self.name}, use disconnect first.")
+            return
+        if host == '':
+            print("Usage: open host name [port]")
+            return
+        print(f'Connected to {host}.')
         self.Clientsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.Clientsocket.connect((host,int(port)))
         self.name = host
@@ -146,17 +171,22 @@ class Ftp:
         self.Clientsocket.send(f'OPTS UTF8 ON\r\n'.encode())
         resp = self.Clientsocket.recv(1024)
         print(resp.decode(),end="")
-        self.connection = True
+        self.useable = True
         user = input(f'User ({host}:(none)): ')
         self.Clientsocket.send(f'USER {user}\r\n'.encode())
         resp = self.Clientsocket.recv(1024)
         print(resp.decode(),end="")
+        if resp.decode().startswith('5'):
+            print('Login failed.')
+            return
         password = getpass.getpass("Password: ")
         self.Clientsocket.send(f'PASS {password}\r\n'.encode())
         resp = self.Clientsocket.recv(1024)
-        if resp.decode().startswith('530'):
+        if resp.decode().startswith('5'):
             print('Login failed.')
             return
+        else:
+            self.connection = True
         print(resp.decode(),end="")
         self.username = user
         self.password = password
@@ -165,6 +195,9 @@ class Ftp:
         if not hasattr(self, 'Clientsocket') or not self.connection:
             print("Not connected.")
             return
+        if file is None and new is None:
+            file = input('Local file ')
+            new = input('Remote file ')
         number = random.randint(0,65535)
         ipaddr = socket.gethostbyname(socket.gethostname())+f".{number//256}.{number%256}"
         ipaddr = ipaddr.replace('.',',')
@@ -209,19 +242,25 @@ class Ftp:
             return
         if filename is None:
             filename = input('From name ')
+        if filename == '':
+            print('rename from-name to-name.')
+            return
         if newname is None:
             newname = input('To name ')
+        if newname == '':
+            print('rename from-name to-name.')
+            return
         self.Clientsocket.send(f'RNFR {filename}\r\n'.encode())
         resp = self.Clientsocket.recv(1024)
         print(resp.decode(),end="") 
-        if not resp.decode().startswith('350'):
+        if not resp.decode().startswith('350') or resp.decode().startswith('5'):
             return
         self.Clientsocket.send(f'RNTO {newname}\r\n'.encode())
         resp = self.Clientsocket.recv(1024)
         print(resp.decode(),end="") 
 
     def user(self,username=None,password=None):
-        if not hasattr(self,'Clientsocket') or self.connection == False:
+        if not hasattr(self,'Clientsocket') or self.useable == False:
             print("Not connected.")
             return
         if username is None:
@@ -244,6 +283,8 @@ def main():
     ftp = Ftp()
     while True:
         line = input("ftp> ").strip()
+        if not line:
+            continue
         args = line.split()
         command = args[0]
         if command == 'quit' or command == 'bye':
@@ -257,10 +298,15 @@ def main():
                 ftp.open(args[1])
             elif len(args) == 3:
                 ftp.open(args[1],args[2])
+            else :
+                print('Usage: open host name [port]')
         elif command == 'disconnect':
             ftp.disconnect()
         elif command == 'ls':
-            ftp.ls()
+            if len(args) == 1:
+                ftp.ls()
+            else:
+                ftp.ls(args[1])
         elif command == 'close':
             ftp.close()
         elif command == 'cd':
@@ -274,14 +320,11 @@ def main():
             ftp.ascii()
         elif command == 'put':
             if len(args) == 1:
-                file = input('Local file ')
-                remote = input('Remote file ')
-                ftp.put(file,remote)
+                ftp.put()
             elif len(args) == 2:
                 ftp.put(args[1],args[1])
             else :
                 ftp.put(args[1],args[2])
-            ftp.put(args[1])
         elif command == 'binary':
             ftp.binary()
         elif command == 'user':
@@ -289,8 +332,10 @@ def main():
                 ftp.user()
             elif len(args) == 2:
                 ftp.user(args[1])
-            else :
+            elif len(args) ==3 :
                 ftp.user(args[1], args[2])
+            elif len(args) > 4 :
+                print('Usage: user username [password] [account]')
         elif command == 'delete':
             if len(args) == 1:
                 ftp.delete()
@@ -306,9 +351,14 @@ def main():
         elif command == 'get':
             if len(args)==1:
                 remote = input('Remote file ')
+                if remote == '':
+                    print('Remote file get [ local-file ].')
+                    continue
                 local = input('Local file ')
                 ftp.get(remote,local)
             elif len(args)==2:
+                ftp.get(args[1],args[1])
+            elif len(args) >=3:
                 ftp.get(args[1],args[2])
         else:
             print("Invalid command.")
