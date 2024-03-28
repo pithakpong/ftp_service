@@ -165,6 +165,7 @@ class Ftp:
         print(f'Connected to {host}.')
         self.Clientsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.Clientsocket.connect((host,int(port)))
+        self.Clientsocket.settimeout(1)
         self.name = host
         resp = self.Clientsocket.recv(1024)
         print(resp.decode(),end="")
@@ -181,13 +182,22 @@ class Ftp:
             return
         password = getpass.getpass("Password: ")
         self.Clientsocket.send(f'PASS {password}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        if resp.decode().startswith('5'):
+        last_response = b''
+        while True:
+            try:
+                resp = self.Clientsocket.recv(1024)
+                if not resp:
+                    break
+                last_response = resp
+                print(last_response.decode(), end="")
+            except socket.timeout:
+                break
+        if last_response.decode().startswith('5'):
             print('Login failed.')
             return
         else:
             self.connection = True
-        print(resp.decode(),end="")
+        # print(resp.decode(),end="")
         self.username = user
         self.password = password
 

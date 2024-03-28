@@ -84,8 +84,10 @@ def main():
                     ftp.get(args[1],args[2])
             else:
                 print("Invalid command.")
-        except ConnectionAbortedError and IndexError:
+        except ConnectionAbortedError or IndexError:
             ftp.connection = False
             ftp.useable = False
+        except TimeoutError:
+            continue
 if  __name__ == '__main__':
     main()
