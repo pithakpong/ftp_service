@@ -1,6 +1,3 @@
-import socket
-import getpass
-import random
 from libftp import Ftp
 
 def main():
