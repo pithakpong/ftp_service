@@ -13,7 +13,7 @@ class Ftp:
         resp = self.Clientsocket.recv(1024)
         print(resp.decode(),end="")
         self.connection = False
-        self.useable
+        self.useable = False
         self.Clientsocket.close()
 
     def bye(self):
@@ -275,6 +275,11 @@ class Ftp:
             password = getpass.getpass("Password: ")
         self.Clientsocket.send(f'PASS {password}\r\n'.encode())
         resp = self.Clientsocket.recv(1024)
+        if resp.decode().startswith('5'):
+            print('Login failed.')
+            return
+        else:
+            self.connection = True
         self.username = username
         self.password = password
         print(resp.decode(),end="")
