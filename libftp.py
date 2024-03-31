@@ -1,6 +1,7 @@
 import socket
 import getpass
 import random
+import time
 class Ftp:
     def __init__(self):
         self.connection = False
@@ -10,11 +11,38 @@ class Ftp:
         if not hasattr(self,'Clientsocket') or self.connection == False:
             return
         self.Clientsocket.send(f'QUIT\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
+        self.receive_all(self.Clientsocket)
         self.connection = False
         self.useable = False
         self.Clientsocket.close()
+    
+    def get_open_port(self):
+        tmp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tmp_sock.bind(('', 0))
+        port = tmp_sock.getsockname()[1]
+        tmp_sock.close()
+        return port
+
+    def receive_all(self, sock, buff_size=4096, is_data=False, show=True):
+        all_data = b''
+        while True:
+            data = sock.recv(buff_size)
+            all_data += data
+
+            if data == b'':
+                break
+            elif len(data) < buff_size:
+                new_resp_list = [d for d in data.split(b'\r\n') if d != b'']
+
+                if len(new_resp_list[-1]) >= 4 and not is_data:
+                    last_resp = new_resp_list[-1].decode()
+                    if last_resp[0:3].isnumeric() and last_resp[3] == ' ':
+                        break
+        
+        if show:
+            all_data = all_data.replace(b'\r\n\r\n', b'\r\n')
+            print(all_data.decode(), end='')
+        return all_data,last_resp
 
     def bye(self):
         self.quit()
@@ -24,16 +52,14 @@ class Ftp:
             print("Not connected.")
             return
         self.Clientsocket.send(f'TYPE I\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
+        self.receive_all(self.Clientsocket)
 
     def ascii(self):
         if not hasattr(self,'Clientsocket') or self.connection == False:
             print("Not connected.")
             return
         self.Clientsocket.send(f'TYPE A\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
+        self.receive_all(self.Clientsocket)
 
     def cd(self,path=None):
         if not hasattr(self,'Clientsocket') or self.connection == False:
@@ -42,8 +68,7 @@ class Ftp:
         if path is None :
             path = input("Remote directory ")
         self.Clientsocket.send(f'CWD {path}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
+        self.receive_all(self.Clientsocket)
 
     def close(self):
         self.disconnect()
@@ -55,16 +80,14 @@ class Ftp:
         if file is None:
             file = input('Remote file ')
         self.Clientsocket.send(f'DELE {file}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
+        self.receive_all(self.Clientsocket)
 
     def disconnect(self):
         if not hasattr(self,'Clientsocket') or self.connection == False:
             print("Not connected.")
             return
         self.Clientsocket.send(f'QUIT\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
+        self.receive_all(self.Clientsocket)
         self.connection = False
         self.useable = False
         self.Clientsocket.close()
@@ -73,40 +96,27 @@ class Ftp:
         if not hasattr(self, 'Clientsocket') or self.connection == False:
             print("Not connected.")
             return
-        number = random.randint(0,65535)
-        ipaddr = socket.gethostbyname(socket.gethostname())+f".{number//256}.{number%256}"
-        ipaddr = ipaddr.replace('.',',')
-        
-        self.Clientsocket.send(f'PORT {ipaddr}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024).decode()
-        print(resp,end='')
+        port = self.get_open_port()
+        local_ip = '127.0.0.1' if self.name == '127.0.0.1' else socket.gethostbyname(socket.gethostname())
+        ip = (str(local_ip) + f".{port // 256}.{port % 256}").replace(".", ",")
+        self.Clientsocket.send(f'PORT {ip}\r\n'.encode())
+        self.receive_all(self.Clientsocket)
+        byte = 0
+        s_time = time.time()
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as D_SOCKET :
+            with open(local_file,'wb') as lf:
 
-        self.Clientsocket.sendall(b'PASV\r\n')
-        pasv_response = self.Clientsocket.recv(1024).decode()
-        data_host, data_port = self.parse_pasv_response(pasv_response)
-        
-        self.Clientsocket.sendall(f'RETR {filename}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024).decode()
-        print(resp,end='')
-        data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        data_socket.settimeout(10)
-        data_socket.connect((data_host, data_port))
-        with open(local_file, 'wb') as lf:
-            while True:
-                try:
-                    data = data_socket.recv(1024)
-                    if not data:
-                        break
-                    lf.write(data)
-                except socket.timeout:
-                    print("Data connection timed out.")
-                    break
-                except Exception as e:
-                    print("An error occurred:", e)
-                    break
-        data_socket.close()
-        resp = self.Clientsocket.recv(1024).decode()
-        print(resp,end='')
+                D_SOCKET.bind((local_ip, port))
+                D_SOCKET.listen(1)
+                self.Clientsocket.send(f"RETR {filename}\r\n".encode())
+                self.receive_all(self.Clientsocket)
+                conn, _ = D_SOCKET.accept()
+                all,_ = self.receive_all(conn,show=False)
+                lf.write(all)
+                total = time.time() - s_time
+                D_SOCKET.close()
+        self.receive_all(self.Clientsocket)
+        print(f"ftp: {byte + 3} bytes received in {total:.2f}Seconds {(byte + 3) / total if not total == 0 else 0.000000001  :.2f}bytes/sec.")
 
 
     def send_command(self,sock,command):
@@ -127,33 +137,28 @@ class Ftp:
         port = int(parts[4])*256 + int(parts[5])
         return host, port
     
-    def ls(self,file=''):
+    def ls(self, folder="") :
         if not hasattr(self, 'Clientsocket') or not self.connection:
             print("Not connected.")
             return
-        number = random.randint(0,65535)
-        ipaddr = socket.gethostbyname(socket.gethostname())+f".{number//256}.{number%256}"
-        ipaddr = ipaddr.replace('.',',')
-        
-        self.Clientsocket.send(f'PORT {ipaddr}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024).decode()
-        print(resp,end='')
-        self.Clientsocket.sendall(b'PASV\r\n')
-        pasv_response = self.Clientsocket.recv(1024).decode()
-        data_host, data_port = self.parse_pasv_response(pasv_response)
-        with socket.create_connection((data_host, data_port)) as data_socket:
-            self.Clientsocket.sendall((f'NLST {file}\r\n').encode())
-            dir_response = self.Clientsocket.recv(1024).decode()
-            print(dir_response, end='')
-            if dir_response.startswith('5'):
-                return
-            while True:
-                data = data_socket.recv(4096)
-                if not data:
-                    break
-                print(data.decode(), end='')
-        control_response = self.Clientsocket.recv(1024).decode()
-        print(control_response, end='')
+        port = self.get_open_port()
+        local_ip = '127.0.0.1' if self.name == '127.0.0.1' else socket.gethostbyname(socket.gethostname())
+        ip = (str(local_ip) + f".{port // 256}.{port % 256}").replace(".", ",")
+        self.Clientsocket.send(f'PORT {ip}\r\n'.encode())
+        self.receive_all(self.Clientsocket)
+        byte = 0
+        s_time = time.time()
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as D_SOCKET :
+            D_SOCKET.bind((local_ip, port))
+            D_SOCKET.listen(1)
+            self.Clientsocket.send(f"NLST {folder}\r\n".encode())
+            self.receive_all(self.Clientsocket)
+            conn, _ = D_SOCKET.accept()
+            self.receive_all(conn)
+            total = time.time() - s_time
+            D_SOCKET.close()
+        self.receive_all(self.Clientsocket)
+        print(f"ftp: {byte + 3} bytes received in {total:.2f}Seconds {(byte + 3) / total if not total == 0 else 0.000000001  :.2f}bytes/sec.")
 
     def open(self,host,port=21):
         if (hasattr(self, 'Clientsocket') and self.connection) or self.useable:
@@ -165,26 +170,21 @@ class Ftp:
         print(f'Connected to {host}.')
         self.Clientsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.Clientsocket.connect((host,int(port)))
-        self.Clientsocket.settimeout(1)
         self.name = host
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
+        self.receive_all(self.Clientsocket)
         self.Clientsocket.send(f'OPTS UTF8 ON\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
+        self.receive_all(self.Clientsocket)
         self.useable = True
         user = input(f'User ({host}:(none)): ')
         self.Clientsocket.send(f'USER {user}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
-        if resp.decode().startswith('5'):
+        _,last = self.receive_all(self.Clientsocket)
+        if last.startswith('5') or last.startswith('4'):
             print('Login failed.')
             return
         password = getpass.getpass("Password: ")
         self.Clientsocket.send(f'PASS {password}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
-        if resp.decode().startswith('5'):
+        _,last = self.receive_all(self.Clientsocket)
+        if last.startswith('5') or last.startswith('4'):
             print('Login failed.')
             return
         else:
@@ -193,49 +193,13 @@ class Ftp:
         self.password = password
 
     def put(self, file=None,new=None):
-        if not hasattr(self, 'Clientsocket') or not self.connection:
-            print("Not connected.")
-            return
-        if file is None and new is None:
-            file = input('Local file ')
-            new = input('Remote file ')
-        number = random.randint(0,65535)
-        ipaddr = socket.gethostbyname(socket.gethostname())+f".{number//256}.{number%256}"
-        ipaddr = ipaddr.replace('.',',')
-        self.Clientsocket.send(f'PORT {ipaddr}\r\n'.encode())
-        port_status = self.Clientsocket.recv(1024)
-        print(port_status.decode(),end="")
-        with open(file,'rb') as f:
-            try:
-
-                self.Clientsocket.sendall(b'PASV\r\n')
-                response = self.Clientsocket.recv(1024).decode()
-                port_start = response.find('(') + 1
-                port_end = response.find(')')
-                port_str = response[port_start:port_end].split(',')
-                data_port = int(port_str[-2]) * 256 + int(port_str[-1])
-                data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                data_socket.connect((socket.gethostbyname(self.name), data_port))
-                self.Clientsocket.sendall((f'STOR {new}\r\n').encode())
-                response = self.Clientsocket.recv(4096).decode()
-                print(response,end='')
-                if not response.startswith('150'):
-                    return
-                data = f.read(4096)
-                while data:
-                    data_socket.sendall(data)
-                    data = f.read(4096)
-            finally:
-                data_socket.close()
-            response = self.Clientsocket.recv(1024)
-            print(response.decode(),end='')
+        pass
     def pwd(self):
         if not hasattr(self,'Clientsocket') or self.connection == False:
             print("Not connected.")
             return
         self.Clientsocket.send(f'XPWD\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
+        self.receive_all(self.Clientsocket)
 
     def rename(self,filename=None,newname=None):
         if not hasattr(self,'Clientsocket') or self.connection == False:
@@ -252,35 +216,35 @@ class Ftp:
             print('rename from-name to-name.')
             return
         self.Clientsocket.send(f'RNFR {filename}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="") 
-        if not resp.decode().startswith('350') or resp.decode().startswith('5'):
+        _,last = self.receive_all(self.Clientsocket)
+        if not last.startswith('350') or last.startswith('5'):
             return
         self.Clientsocket.send(f'RNTO {newname}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="") 
+        self.receive_all(self.Clientsocket)
 
-    def user(self,username=None,password=None):
+    def user(self,username=None,password=None,warn=False):
         if not hasattr(self,'Clientsocket') or self.useable == False:
             print("Not connected.")
+            return
+        if warn:
+            print('Usage: user username [password] [account]')
             return
         if username is None:
             username = input('Username ')
         self.Clientsocket.send(f'User {username}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        print(resp.decode(),end="")
-        if not resp.decode().startswith('331'):
-            print('Login failed.')
+        _,last = self.receive_all(self.Clientsocket)
+        if not last.startswith('331'):
+            if not(last.startswith('4') or last.startswith('5')):
+                print('Login failed.')
             return
         if password is None:
             password = getpass.getpass("Password: ")
         self.Clientsocket.send(f'PASS {password}\r\n'.encode())
-        resp = self.Clientsocket.recv(1024)
-        if resp.decode().startswith('5'):
+        _,last = self.receive_all(self.Clientsocket)
+        if last.startswith('5') or last.startswith('4'):
             print('Login failed.')
             return
         else:
             self.connection = True
         self.username = username
         self.password = password
-        print(resp.decode(),end="")

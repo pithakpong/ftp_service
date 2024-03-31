@@ -54,10 +54,10 @@ def main():
                     ftp.user()
                 elif len(args) == 2:
                     ftp.user(args[1])
-                elif len(args) ==3 :
+                elif len(args) ==3 or len(args) == 4:
                     ftp.user(args[1], args[2])
                 elif len(args) > 4 :
-                    print('Usage: user username [password] [account]')
+                    ftp.user(warn=True)
             elif command == 'delete':
                 if len(args) == 1:
                     ftp.delete()
