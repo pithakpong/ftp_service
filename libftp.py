@@ -115,6 +115,7 @@ class Ftp:
                 lf.write(all)
                 byte += len(all)
                 total = time.time() - s_time
+                conn.close()
                 D_SOCKET.close()
         self.receive_all(self.Clientsocket)
         print(f"ftp: {byte} bytes received in {total:.2f}Seconds {(byte) / total if not total == 0 else 0.000000001  :.2f}bytes/sec.")
@@ -158,6 +159,7 @@ class Ftp:
             all,_ = self.receive_all(conn)
             total = time.time() - s_time
             byte += len(all)
+            conn.close()
             D_SOCKET.close()
         self.receive_all(self.Clientsocket)
         print(f"ftp: {byte + 3} bytes received in {total:.2f}Seconds {(byte + 3) / total if not total == 0 else 0.000000001  :.2f}bytes/sec.")
