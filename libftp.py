@@ -113,10 +113,11 @@ class Ftp:
                 conn, _ = D_SOCKET.accept()
                 all,_ = self.receive_all(conn,show=False)
                 lf.write(all)
+                byte += len(all)
                 total = time.time() - s_time
                 D_SOCKET.close()
         self.receive_all(self.Clientsocket)
-        print(f"ftp: {byte + 3} bytes received in {total:.2f}Seconds {(byte + 3) / total if not total == 0 else 0.000000001  :.2f}bytes/sec.")
+        print(f"ftp: {byte} bytes received in {total:.2f}Seconds {(byte) / total if not total == 0 else 0.000000001  :.2f}bytes/sec.")
 
 
     def send_command(self,sock,command):
@@ -154,8 +155,9 @@ class Ftp:
             self.Clientsocket.send(f"NLST {folder}\r\n".encode())
             self.receive_all(self.Clientsocket)
             conn, _ = D_SOCKET.accept()
-            self.receive_all(conn)
+            all,_ = self.receive_all(conn)
             total = time.time() - s_time
+            byte += len(all)
             D_SOCKET.close()
         self.receive_all(self.Clientsocket)
         print(f"ftp: {byte + 3} bytes received in {total:.2f}Seconds {(byte + 3) / total if not total == 0 else 0.000000001  :.2f}bytes/sec.")
@@ -193,7 +195,43 @@ class Ftp:
         self.password = password
 
     def put(self, file=None,new=None):
-        pass
+        if not hasattr(self,'Clientsocket') or self.connection == False:
+            print("Not connected.")
+            return
+        port = self.get_open_port()
+        local_ip = '127.0.0.1' if self.name == '127.0.0.1' else socket.gethostbyname(socket.gethostname())
+        ip = (str(local_ip) + f".{port // 256}.{port % 256}").replace(".", ",")
+        self.Clientsocket.send(f'PORT {ip}\r\n'.encode())
+        self.receive_all(self.Clientsocket)
+        byte = 0
+        s_time = time.time()
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as D_SOCKET :
+            D_SOCKET.bind((local_ip, port))
+            D_SOCKET.listen(1)
+            self.Clientsocket.send(f"STOR {new}\r\n".encode())
+            _,res = self.receive_all(self.Clientsocket)
+            if res== "" or not res.startswith('150'): return
+            conn, _ = D_SOCKET.accept()
+            D_SOCKET.settimeout(10)
+            with open(file, "rb") as localfile :
+                while True :
+                    try :
+                        data = localfile.read(4096)
+                        conn.sendall(data)
+                        if data == b'' : localfile.close(); break
+                        byte+=len(data)
+                    except socket.timeout :
+                        print("Data connection timed out.")
+                        break
+                    except Exception as error :
+                        print("An error occurred:", error)
+                        break
+            total = time.time()-s_time
+            conn.close()
+            D_SOCKET.close()
+        self.receive_all(self.Clientsocket)
+        print(f"ftp: {byte} bytes received in {total:.2f}Seconds {(byte) / total if not total == 0 else 0.000000001  :.2f}bytes/sec.")
+
     def pwd(self):
         if not hasattr(self,'Clientsocket') or self.connection == False:
             print("Not connected.")
