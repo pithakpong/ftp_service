@@ -77,6 +77,8 @@ def main():
                         print('Remote file get [ local-file ].')
                         continue
                     local = input('Local file ')
+                    if local == '':
+                        local = remote
                     ftp.get(remote,local)
                 elif len(args)==2:
                     ftp.get(args[1],args[1])
