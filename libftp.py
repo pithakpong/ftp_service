@@ -1,6 +1,6 @@
 import socket
 import getpass
-import random
+import os
 import time
 class Ftp:
     def __init__(self):
@@ -48,21 +48,21 @@ class Ftp:
         self.quit()
 
     def binary(self):
-        if not hasattr(self,'Clientsocket') or self.connection == False:
+        if (not hasattr(self, 'Clientsocket') or not self.connection) and not self.useable:
             print("Not connected.")
             return
         self.Clientsocket.send(f'TYPE I\r\n'.encode())
         self.receive_all(self.Clientsocket)
 
     def ascii(self):
-        if not hasattr(self,'Clientsocket') or self.connection == False:
+        if (not hasattr(self, 'Clientsocket') or not self.connection) and not self.useable:
             print("Not connected.")
             return
         self.Clientsocket.send(f'TYPE A\r\n'.encode())
         self.receive_all(self.Clientsocket)
 
     def cd(self,path=None):
-        if not hasattr(self,'Clientsocket') or self.connection == False:
+        if (not hasattr(self, 'Clientsocket') or not self.connection) and not self.useable:
             print("Not connected.")
             return
         if path is None :
@@ -74,7 +74,7 @@ class Ftp:
         self.disconnect()
 
     def delete(self,file=None):
-        if not hasattr(self,'Clientsocket') or self.connection == False:
+        if (not hasattr(self, 'Clientsocket') or not self.connection) and not self.useable:
             print("Not connected.")
             return
         if file is None:
@@ -93,7 +93,7 @@ class Ftp:
         self.Clientsocket.close()
 
     def get(self, filename, local_file=None):
-        if not hasattr(self, 'Clientsocket') or self.connection == False:
+        if (not hasattr(self, 'Clientsocket') or not self.connection) and not self.useable:
             print("Not connected.")
             return
         port = self.get_open_port()
@@ -104,12 +104,14 @@ class Ftp:
         byte = 0
         s_time = time.time()
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as D_SOCKET :
+            self.Clientsocket.send(f"RETR {filename}\r\n".encode())
+            _,last = self.receive_all(self.Clientsocket)
+            if last.startswith('5') or last.startswith('4'):
+                return
             with open(local_file,'wb') as lf:
 
                 D_SOCKET.bind((local_ip, port))
                 D_SOCKET.listen(1)
-                self.Clientsocket.send(f"RETR {filename}\r\n".encode())
-                self.receive_all(self.Clientsocket)
                 conn, _ = D_SOCKET.accept()
                 all,_ = self.receive_all(conn,show=False)
                 lf.write(all)
@@ -140,21 +142,23 @@ class Ftp:
         return host, port
     
     def ls(self, folder="") :
-        if not hasattr(self, 'Clientsocket') or not self.connection:
+        if (not hasattr(self, 'Clientsocket') or not self.connection) and not self.useable:
             print("Not connected.")
             return
         port = self.get_open_port()
         local_ip = '127.0.0.1' if self.name == '127.0.0.1' else socket.gethostbyname(socket.gethostname())
         ip = (str(local_ip) + f".{port // 256}.{port % 256}").replace(".", ",")
         self.Clientsocket.send(f'PORT {ip}\r\n'.encode())
-        self.receive_all(self.Clientsocket)
+        _,last = self.receive_all(self.Clientsocket)
         byte = 0
         s_time = time.time()
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as D_SOCKET :
             D_SOCKET.bind((local_ip, port))
             D_SOCKET.listen(1)
             self.Clientsocket.send(f"NLST {folder}\r\n".encode())
-            self.receive_all(self.Clientsocket)
+            _,last = self.receive_all(self.Clientsocket)
+            if last.startswith('5') or last.startswith('4'):
+                return
             conn, _ = D_SOCKET.accept()
             all,_ = self.receive_all(conn)
             total = time.time() - s_time
@@ -197,8 +201,11 @@ class Ftp:
         self.password = password
 
     def put(self, file=None,new=None):
-        if not hasattr(self,'Clientsocket') or self.connection == False:
+        if (not hasattr(self, 'Clientsocket') or not self.connection) and not self.useable:
             print("Not connected.")
+            return
+        if file not in os.listdir(os.getcwd()):
+            print(f'{file}: File not found')
             return
         port = self.get_open_port()
         local_ip = '127.0.0.1' if self.name == '127.0.0.1' else socket.gethostbyname(socket.gethostname())
@@ -235,14 +242,14 @@ class Ftp:
         print(f"ftp: {byte} bytes received in {total:.2f}Seconds {(byte) / total if not total == 0 else 0.000000001  :.2f}bytes/sec.")
 
     def pwd(self):
-        if not hasattr(self,'Clientsocket') or self.connection == False:
+        if (not hasattr(self, 'Clientsocket') or not self.connection) and not self.useable:
             print("Not connected.")
             return
         self.Clientsocket.send(f'XPWD\r\n'.encode())
         self.receive_all(self.Clientsocket)
 
     def rename(self,filename=None,newname=None):
-        if not hasattr(self,'Clientsocket') or self.connection == False:
+        if (not hasattr(self, 'Clientsocket') or not self.connection) and not self.useable:
             print("Not connected.")
             return
         if filename is None:
